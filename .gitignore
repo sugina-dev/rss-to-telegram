@@ -1,4 +1,4 @@
-.idea/
+.idea
 config.py
 posts.json
 
@@ -6,15 +6,8 @@ posts.json
 __pycache__/
 *.py[cod]
 *$py.class
+.mypy_cache
 
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# virtualenv
-.venv
-venv/
-ENV/
-env/
-
-Pipfile.lock
+venv
+.mypy_cache
+.vscode

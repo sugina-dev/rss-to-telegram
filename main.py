@@ -1,4 +1,4 @@
-# _*_ coding: utf-8 _*_
+# -*- coding: utf-8 -*-
 
 from bs4 import BeautifulSoup
 from config import config
@@ -6,61 +6,54 @@ from datetime import datetime
 import feedparser
 import json
 import os
+import sys
 import telebot
 import traceback
-import sys
 
-def get_time(dt):
-    return datetime.strptime(dt, '%a, %d %b %Y %H:%M:%S %z')
-
-bot = telebot.TeleBot(config.get('telegram-token'))
-
-feeds = list()
-
-if type(config.get('feeds')) == str:
-    feeds.append(feedparser.parse(config.get('feeds')))
-else:
-    for feed in config.get('feeds'):
-        feeds.append(feedparser.parse(feed))
-
-new_posts_and_guid = []
-
-if not os.path.exists('posts.json'):
-    with open('posts.json', 'w') as f:
-        json.dump([], f)
-        f.close()
+if not os.path.exists('posts.json'):  # First run
+	with open('posts.json', 'w') as f:
+		json.dump([], f)
+		f.close()
 
 with open('posts.json') as f:
-    guids = json.load(f)
-    f.close()
+	old_guids = json.load(f)
+	f.close()
 
-for feed in feeds:
-    for entry in feed.entries:
-        content = entry['description']
-        post = {}
-        soup = BeautifulSoup(content, 'html.parser')
-        #if soup.img:
-        #    post['image'] = soup.img['src']
-        post['text'] = '\n'.join(soup.stripped_strings)
-        #post['text'] += '\n{}'.format(entry['link'])
-        post['date'] = get_time(entry['published'])
-        post['text'] += post['date'].strftime('\n%Y-%m-%d %H:%M:%S %Z')
+bot = telebot.TeleBot(config.get('telegram-token'))
+feed = feedparser.parse(config.get('feed'))
 
-        this_guid = entry['guid']
-        if this_guid not in guids:
-            # TODO: strip guid with a regex like /d{4,}\/{?}$/
-            new_posts_and_guid.append((post, this_guid))
+new_guids = []
+new_posts = []
 
-new_posts_and_guid.sort(key=lambda a_b: a_b[0]['date'])
+for entry in feed.entries:
+	if 'description' in entry:
+		content = entry['description']
+		soup = BeautifulSoup(content, 'html.parser')
+		date = datetime.strptime(entry['published'], '%a, %d %b %Y %H:%M:%S %z')
+		text = '\n'.join(soup.stripped_strings) + date.strftime('\n%Y-%m-%d %H:%M:%S %Z')
+		guid = entry['guid']
+		if guid in old_guids:
+			new_guids.append(guid)  # Although seen, since it is still in the feed, we need to record it
+		else:
+			new_posts.append({ 'text': text, 'date': date, 'guid': guid })
+
+new_posts.sort(key=lambda post: post['date'])
+
+current_guid = None
 
 try:
-    for post, guid in new_posts_and_guid:
-        bot.send_message(config.get('channel-id'), post.get('text'), disable_web_page_preview=True)
-        guids.append(guid)
+	for post in new_posts:
+		current_guid = post['guid']
+		is_legal_post = 80 < len(post['text']) < 500 and len(post['text'].split('\n')) < 8
+		if is_legal_post:
+			bot.send_message(config.get('channel-id'), post['text'], disable_web_page_preview=True)
+		new_guids.append(post['guid'])
 except:
-        exc_type, exc_value, exc_traceback = sys.exc_info()
-        traceback.print_exception(exc_type, exc_value, exc_traceback, file=sys.stderr)
+	exc_type, exc_value, exc_traceback = sys.exc_info()
+	traceback.print_exception(exc_type, exc_value, exc_traceback, file=sys.stderr)
+	if current_guid is not None:
+		new_guids.append(current_guid)
 finally:
-    with open('posts.json', 'w') as f:
-        json.dump(guids, f)
-        f.close()
+	with open('posts.json', 'w') as f:
+		json.dump(new_guids, f)
+		f.close()
